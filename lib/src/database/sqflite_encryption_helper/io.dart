@@ -1,17 +1,19 @@
-import 'dart:ffi';
 import 'dart:io';
-import 'dart:math' show max;
 
 import 'package:sqflite_common/sqlite_api.dart';
-import 'package:sqlite3/open.dart';
 
 import 'package:matrix/matrix.dart';
 
 /// A helper utility for SQfLite related encryption operations
 ///
-/// * helps loading the required dynamic libraries - even on cursed systems
 /// * migrates unencrypted SQLite databases to SQLCipher
 /// * applies the PRAGMA key to a database and ensure it is properly loading
+///
+/// As of sqlite3 v3, native library loading is handled by Dart's build hooks
+/// system (configured in pubspec.yaml) rather than runtime DynamicLibrary
+/// overrides. The former [ffiInit] method that used `package:sqlite3/open.dart`
+/// is no longer functional. Consumers should configure
+/// SQLCipher/SQLite3MultipleCiphers via their app's pubspec.yaml hooks config.
 class SQfLiteEncryptionHelper {
   /// the factory to use for all SQfLite operations
   final DatabaseFactory factory;
@@ -28,69 +30,29 @@ class SQfLiteEncryptionHelper {
     required this.cipher,
   });
 
-  /// Loads the correct [DynamicLibrary] required for SQLCipher
+  /// Previously loaded the SQLCipher DynamicLibrary via
+  /// `package:sqlite3/open.dart`, which was removed in sqlite3 v3.
   ///
-  /// To be used with `package:sqlite3/open.dart`:
-  /// ```dart
-  /// void main() {
-  ///   final factory = createDatabaseFactoryFfi(
-  ///     ffiInit: SQfLiteEncryptionHelper.ffiInit,
-  ///   );
-  /// }
+  /// Native library loading is now handled at build time via Dart's hook
+  /// system. To use SQLCipher, configure it in your app's `pubspec.yaml`:
+  ///
+  /// ```yaml
+  /// sqlite3:
+  ///   source: system
+  ///   name: sqlcipher
   /// ```
-  static void ffiInit() => open.overrideForAll(_loadSQLCipherDynamicLibrary);
-
-  static DynamicLibrary _loadSQLCipherDynamicLibrary() {
-    // Taken from https://github.com/simolus3/sqlite3.dart/blob/e66702c5bec7faec2bf71d374c008d5273ef2b3b/sqlite3/lib/src/load_library.dart#L24
-    if (Platform.isAndroid) {
-      try {
-        return DynamicLibrary.open('libsqlcipher.so');
-      } catch (_) {
-        // On some (especially old) Android devices, we somehow can't dlopen
-        // libraries shipped with the apk. We need to find the full path of the
-        // library (/data/data/<id>/lib/libsqlcipher.so) and open that one.
-        // For details, see https://github.com/simolus3/moor/issues/420
-        final appIdAsBytes = File('/proc/self/cmdline').readAsBytesSync();
-
-        // app id ends with the first \0 character in here.
-        final endOfAppId = max(appIdAsBytes.indexOf(0), 0);
-        final appId = String.fromCharCodes(appIdAsBytes.sublist(0, endOfAppId));
-
-        return DynamicLibrary.open('/data/data/$appId/lib/libsqlcipher.so');
-      }
-    }
-    if (Platform.isLinux) {
-      // *not my fault grumble*
-      //
-      // On many Linux systems, I encountered issues opening the system provided
-      // libsqlcipher.so. I hence decided to ship an own one - statically linked
-      // against a patched version of OpenSSL compiled with the correct options.
-      //
-      // This was the only way I reached to run on particular Fedora and Arch
-      // systems.
-      //
-      // Hours wasted : 12
-      try {
-        return DynamicLibrary.open('libsqlcipher_flutter_libs_plugin.so');
-      } catch (_) {
-        return DynamicLibrary.open('libsqlcipher.so');
-      }
-    }
-    if (Platform.isIOS) {
-      return DynamicLibrary.process();
-    }
-    if (Platform.isMacOS) {
-      return DynamicLibrary.open(
-        'sqlcipher_flutter_libs.framework/Versions/Current/'
-        'sqlcipher_flutter_libs',
+  ///
+  /// This method now throws [UnsupportedError]. Remove calls to it and
+  /// configure native libraries via pubspec hooks instead.
+  @Deprecated(
+    'sqlite3 v3 removed runtime library overrides. '
+    'Configure SQLCipher via pubspec.yaml build hooks instead.',
+  )
+  static void ffiInit() => throw UnsupportedError(
+        'SQfLiteEncryptionHelper.ffiInit() is no longer supported. '
+        'sqlite3 v3 uses Dart build hooks for native library loading. '
+        'Configure SQLCipher/SQLite3MultipleCiphers in your pubspec.yaml.',
       );
-    }
-    if (Platform.isWindows) {
-      return DynamicLibrary.open('libsqlcipher.dll');
-    }
-
-    throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
-  }
 
   /// checks whether the database exists and is encrypted
   ///
