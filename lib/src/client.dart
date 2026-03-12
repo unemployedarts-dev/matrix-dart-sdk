@@ -2372,11 +2372,7 @@ class Client extends MatrixApi {
   Future<void>? _handleSoftLogoutFuture;
 
   Future<void> _handleSoftLogout() async {
-    final onSoftLogout = this.onSoftLogout;
-    if (onSoftLogout == null) {
-      await logout();
-      return;
-    }
+    final onSoftLogout = this.onSoftLogout ?? (_) => refreshAccessToken();
 
     _handleSoftLogoutFuture ??= () async {
       onLoginStateChanged.add(LoginState.softLoggedOut);
@@ -2400,8 +2396,7 @@ class Client extends MatrixApi {
     Duration expiresIn = const Duration(minutes: 1),
   ]) async {
     final tokenExpiresAt = accessTokenExpiresAt;
-    if (onSoftLogout != null &&
-        tokenExpiresAt != null &&
+    if (tokenExpiresAt != null &&
         tokenExpiresAt.difference(DateTime.now()) <= expiresIn) {
       await _handleSoftLogout();
     }
@@ -3228,6 +3223,8 @@ class Client extends MatrixApi {
           return a.membership == Membership.invite ? -1 : 1;
         } else if (a.isFavourite != b.isFavourite) {
           return a.isFavourite ? -1 : 1;
+        } else if (a.isLowPriority != b.isLowPriority) {
+          return a.isLowPriority ? 1 : -1;
         } else if (pinUnreadRooms &&
             a.notificationCount != b.notificationCount) {
           return b.notificationCount.compareTo(a.notificationCount);
